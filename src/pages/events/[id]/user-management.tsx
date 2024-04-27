@@ -114,7 +114,7 @@ function UserManagement() {
                           key={tech.id}
                           className="mt-3 mr-3 text-base text-gray-800"
                         >
-                          <span>{tech.label}</span>
+                          <span>{tech.tech.label}</span>
                         </div>
                       ))
                     ) : (
