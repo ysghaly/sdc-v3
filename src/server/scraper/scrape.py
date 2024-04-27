@@ -1,18 +1,20 @@
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 import requests
 from bs4 import BeautifulSoup
 import re
 import os
-import MySQLdb
+import psycopg2
 from datetime import datetime
 import time
 import random
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 def storeEvents(eventListings, cursor, connection):
+  linkPrefix = "https://www.meetup.com"
+
   for event in eventListings:    
-    date = event.find("time").text.strip()
+    date = event.find("span", class_="eventTimeDisplay-startDate").text.strip()
     dateObj = formatDate(date)
 
     mysqlDateStr = dateObj.strftime('%Y-%m-%d %H:%M:%S') 
@@ -23,16 +25,18 @@ def storeEvents(eventListings, cursor, connection):
       print("Event already in DB")
       continue
 
-    cuid = generateCuid();
+    cuid = generateCuid()
 
     isFeatured = True
 
-    name = "Project-based Mini-Hackathon!"
-    location = "Central Library, Calgary, AB"
+    name = event.find("span", class_="visibility--a11yHide").text.strip()
+
+    location = event.find("div", class_="venueDisplay").text.strip()
 
     updatedAt = datetime.now()
 
-    link = event["href"]
+    link = event.find("a", class_="eventCard--link")["href"]
+    link = linkPrefix + link
 
     description, imageUrl = getDescAndImgUrl(link)
     print ("Creating new event: ")
@@ -72,18 +76,7 @@ def clearEventsDB(cursor, connection):
   connection.commit()
 
 def setUpDB():
-  print (os.getenv("HOST"))
-  connection = MySQLdb.connect(
-    host= os.getenv("HOST"),
-    user=os.getenv("USERNAME"),
-    passwd= os.getenv("PASSWORD"),
-    db= os.getenv("DATABASE"),
-    autocommit = True,
-    ssl_mode = "VERIFY_IDENTITY",
-    ssl = {
-      "ca": "./cert.pem"
-    }
-  )
+  connection = psycopg2.connect(os.getenv("DATABASE_URL")  )
 
   cursor = connection.cursor()
   return cursor, connection
@@ -91,12 +84,10 @@ def setUpDB():
 def getEventData():
   url = "https://www.meetup.com/software-developers-of-calgary/events/"
   response = requests.get(url)
-  soup = BeautifulSoup(response.content, "html.parser")
-  regex = re.compile(
-    r"https://www\.meetup\.com/software-developers-of-calgary/events/\d+/"
-  )
 
-  eventListings = soup.find_all("a", href=regex)
+  soup = BeautifulSoup(response.content, "html.parser")
+
+  eventListings = soup.find_all("div", class_="eventCard")
 
   return eventListings
 
@@ -110,8 +101,7 @@ def getDescAndImgUrl(eventLink):
 
   # for some reason, the description has a max of 191 characters on the DB
   # todo: change the description table to allow for more characters
-  text_content = [p.get_text(strip=True) for p in descriptionHtml.find_all('p')][:191]
-  description = ' '.join(text_content)
+  description = (descriptionHtml.get_text() if descriptionHtml else "")[:191]
 
   return description, imageUrl
 
@@ -132,8 +122,6 @@ def closeDB(cursor, connection):
   connection.close()
 
 # MAIN:
-print("Host: ")
-print(os.getenv("HOST"))
 cursor, connection = setUpDB()
 eventListings = getEventData()
 storeEvents(eventListings, cursor, connection)
